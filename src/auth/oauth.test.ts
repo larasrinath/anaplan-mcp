@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { OAuthProvider, DeviceAuthorizationRequiredError } from "./oauth.js";
+import {
+  OAuthProvider,
+  DeviceAuthorizationRequiredError,
+  OAuthReauthorizationRequiredError,
+} from "./oauth.js";
 
 describe("OAuthProvider", () => {
   beforeEach(() => {
@@ -308,6 +312,39 @@ describe("OAuthProvider", () => {
       await provider.authenticate(); // consumes initialRefreshToken
       // Second call: initialRefreshToken is null → falls through to device grant
       await expect(provider.authenticate()).rejects.toBeInstanceOf(DeviceAuthorizationRequiredError);
+    });
+
+    it("turns an invalid stored refresh token into a reauthorization prompt", async () => {
+      vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 403,
+          statusText: "Forbidden",
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            device_code: "dcode",
+            user_code: "UCODE",
+            verification_uri: "https://auth.anaplan.com/device",
+            expires_in: 600,
+            interval: 5,
+          }),
+        } as Response);
+
+      const provider = new OAuthProvider("client-id", undefined, undefined, "expired-refresh-token");
+
+      let caught: OAuthReauthorizationRequiredError | undefined;
+      try {
+        await provider.authenticate();
+      } catch (error) {
+        caught = error as OAuthReauthorizationRequiredError;
+      }
+
+      expect(caught).toBeInstanceOf(OAuthReauthorizationRequiredError);
+      expect(caught!.message).toContain("can reach Anaplan auth");
+      expect(caught!.message).toContain("403 Forbidden");
+      expect(caught!.message).toContain("Enter code: UCODE");
     });
   });
 

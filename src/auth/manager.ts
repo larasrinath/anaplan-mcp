@@ -1,7 +1,12 @@
 import type { AuthProvider, TokenInfo } from "./types.js";
 import { BasicAuthProvider } from "./basic.js";
 import { CertificateAuthProvider, type CertificateEncodedDataFormat } from "./certificate.js";
-import { OAuthProvider } from "./oauth.js";
+import {
+  DeviceAuthorizationRequiredError,
+  OAuthProvider,
+  OAuthReauthorizationRequiredError,
+  isOAuthReauthorizationError,
+} from "./oauth.js";
 
 const REFRESH_BUFFER_MS = 5 * 60 * 1000; // Refresh 5 minutes before expiry
 const INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000; // Force re-auth after 60 min inactivity
@@ -82,8 +87,23 @@ export class AuthManager {
           this.token = await this.provider.refresh(
             this.providerType === "oauth" ? this.token.refreshTokenId : this.token.tokenValue
           );
-        } catch {
-          this.token = await this.provider.authenticate();
+        } catch (refreshFailure) {
+          if (this.providerType === "oauth" && !isOAuthReauthorizationError(refreshFailure)) {
+            throw refreshFailure;
+          }
+
+          try {
+            this.token = await this.provider.authenticate();
+          } catch (authFailure) {
+            if (
+              this.providerType === "oauth" &&
+              isOAuthReauthorizationError(refreshFailure) &&
+              authFailure instanceof DeviceAuthorizationRequiredError
+            ) {
+              throw new OAuthReauthorizationRequiredError(refreshFailure, authFailure);
+            }
+            throw authFailure;
+          }
         }
       } else {
         this.token = await this.provider.authenticate();

@@ -196,6 +196,50 @@ describe("AuthManager", () => {
     await expect(manager.getAuthHeaders()).rejects.toThrow("Anaplan authorization required");
   });
 
+  it("surfaces a clearer message when OAuth refresh is rejected and reauth is needed", async () => {
+    process.env.ANAPLAN_CLIENT_ID = "cid";
+    process.env.ANAPLAN_REFRESH_TOKEN = "stored-refresh";
+
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          access_token: "bearer-token",
+          token_type: "Bearer",
+          expires_in: 60,
+          refresh_token: "new-refresh",
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        statusText: "Forbidden",
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          device_code: "dc",
+          user_code: "ABCD-1234",
+          verification_uri: "https://example.com/device",
+          expires_in: 300,
+          interval: 5,
+        }),
+      } as Response);
+
+    const manager = AuthManager.fromEnv();
+    await manager.getAuthHeaders();
+
+    let message = "";
+    try {
+      await manager.getAuthHeaders();
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(message).toContain("Anaplan OAuth reauthorization required");
+    expect(message).toContain("can reach Anaplan auth");
+  });
+
   it("does not force re-auth when OAuth is used within 60 min", async () => {
     process.env.ANAPLAN_CLIENT_ID = "cid";
     process.env.ANAPLAN_REFRESH_TOKEN = "stored-refresh";

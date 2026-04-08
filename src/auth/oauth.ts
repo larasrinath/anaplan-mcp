@@ -56,6 +56,52 @@ export class DeviceAuthorizationRequiredError extends Error {
   }
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export function isOAuthReauthorizationError(error: unknown): boolean {
+  const message = errorMessage(error);
+  return (
+    /OAuth refresh request failed: (400|401|403)\b/.test(message) ||
+    /OAuth token refresh failed:/i.test(message)
+  );
+}
+
+export class OAuthReauthorizationRequiredError extends DeviceAuthorizationRequiredError {
+  readonly refreshFailureMessage: string;
+
+  constructor(refreshFailure: unknown, deviceError: DeviceAuthorizationRequiredError) {
+    super(
+      deviceError.verificationUri,
+      deviceError.userCode,
+      deviceError.verificationUriComplete,
+    );
+    this.name = "OAuthReauthorizationRequiredError";
+    this.refreshFailureMessage = errorMessage(refreshFailure);
+
+    const lines = [
+      "Anaplan OAuth reauthorization required.",
+      "",
+      "The MCP server is running and can reach Anaplan auth, but the saved OAuth session could not be refreshed.",
+      `Refresh failure: ${this.refreshFailureMessage}`,
+      "",
+    ];
+
+    if (deviceError.verificationUriComplete) {
+      lines.push(`Click to authorize: ${deviceError.verificationUriComplete}`);
+    } else {
+      lines.push(`Go to: ${deviceError.verificationUri}`);
+      lines.push(`Enter code: ${deviceError.userCode}`);
+    }
+
+    lines.push("");
+    lines.push("Once approved, call the tool again to complete sign-in.");
+
+    this.message = lines.join("\n");
+  }
+}
+
 export class OAuthProvider implements AuthProvider {
   private readonly clientId: string;
   private pendingDevice: PendingDeviceState | null = null;
@@ -76,7 +122,21 @@ export class OAuthProvider implements AuthProvider {
     if (this.initialRefreshToken) {
       const rt = this.initialRefreshToken;
       this.initialRefreshToken = null;
-      return this.refresh(rt);
+      try {
+        return await this.refresh(rt);
+      } catch (refreshFailure) {
+        if (!isOAuthReauthorizationError(refreshFailure)) {
+          throw refreshFailure;
+        }
+        try {
+          return await this.authenticateWithDeviceGrant();
+        } catch (deviceError) {
+          if (deviceError instanceof DeviceAuthorizationRequiredError) {
+            throw new OAuthReauthorizationRequiredError(refreshFailure, deviceError);
+          }
+          throw deviceError;
+        }
+      }
     }
     return this.authenticateWithDeviceGrant();
   }

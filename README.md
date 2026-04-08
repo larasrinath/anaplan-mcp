@@ -155,6 +155,7 @@ Quit Claude Desktop completely (right-click the system tray icon and quit - don'
 - **"Unexpected non-whitespace" error** - Your JSON is invalid. Make sure there's only one `{}` object in the file and no trailing commas. Paste your config into [jsonlint.com](https://jsonlint.com/) to check.
 - **Server disconnected** - Run `node C:/path/to/anaplan-mcp/dist/index.js` in a terminal to see the actual error. Common causes: wrong path in `args`, missing `npm run build`, or Node.js not installed.
 - **401 Unauthorized when using tools** - Your Anaplan credentials are wrong, or your account uses SSO (in which case basic auth won't work - use certificate or OAuth2 instead).
+- **OAuth refresh failed / reauthorization required** - The MCP server is up and reached Anaplan, but the saved OAuth session is no longer valid. Re-authorize in your MCP client, then retry the tool.
 
 ### Connect to Claude Code
 

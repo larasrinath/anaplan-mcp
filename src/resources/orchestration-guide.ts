@@ -566,6 +566,13 @@ When using this MCP server through Claude Web or Claude Desktop (remote transpor
 3. Start a new chat/conversation to get a fresh MCP session with a new auth token.
 4. Do NOT keep retrying in the same conversation -- each failed call wastes time and tokens.
 
+**How to interpret connection/auth failures:**
+- \`Anaplan OAuth reauthorization required\` means the MCP server is alive and reached Anaplan auth successfully, but the saved OAuth session could not be refreshed. Re-authorize, then retry.
+- \`Anaplan authorization required\` means the server needs the user to complete the OAuth device login flow before tool calls can proceed.
+- \`No Anaplan credentials configured\` means the MCP server started without any usable Anaplan auth configuration.
+- \`Anaplan API error (401)\` means the request reached Anaplan's API but the credentials/token were rejected.
+- \`Anaplan API error (403)\` means the request reached Anaplan's API and authenticated, but the user lacks permission for that resource or action.
+
 **Best practices for long conversations:**
 - Front-load discovery calls (show_workspaces, show_models, show_modules) early when the session is fresh.
 - Save important IDs (workspaceId, modelId) in the conversation so they can be reused in a new session if needed.
