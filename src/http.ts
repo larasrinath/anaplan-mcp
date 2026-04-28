@@ -38,9 +38,14 @@ export function loadHttpBodyLimit(env: NodeJS.ProcessEnv = process.env): string 
 }
 
 export function validateRemoteHttpEnv(env: NodeJS.ProcessEnv = process.env): void {
-  if (!trimToNull(env.ANAPLAN_CLIENT_ID)) {
+  const hasOAuth = !!trimToNull(env.ANAPLAN_CLIENT_ID);
+  const hasCert = !!trimToNull(env.ANAPLAN_CERTIFICATE_PATH) && !!trimToNull(env.ANAPLAN_PRIVATE_KEY_PATH);
+  const hasBasic = !!trimToNull(env.ANAPLAN_USERNAME) && !!trimToNull(env.ANAPLAN_PASSWORD);
+  if (!hasOAuth && !hasCert && !hasBasic) {
     throw new Error(
-      "Remote HTTP mode requires ANAPLAN_CLIENT_ID so each session can authenticate with Anaplan OAuth."
+      "Remote HTTP mode requires one of: ANAPLAN_CLIENT_ID (OAuth), " +
+      "ANAPLAN_CERTIFICATE_PATH+ANAPLAN_PRIVATE_KEY_PATH (cert), or " +
+      "ANAPLAN_USERNAME+ANAPLAN_PASSWORD (basic, single-tenant)."
     );
   }
 }

@@ -12,14 +12,38 @@ import {
 describe("HTTP auth config", () => {
   afterEach(() => {
     delete process.env.ANAPLAN_CLIENT_ID;
+    delete process.env.ANAPLAN_USERNAME;
+    delete process.env.ANAPLAN_PASSWORD;
+    delete process.env.ANAPLAN_CERTIFICATE_PATH;
+    delete process.env.ANAPLAN_PRIVATE_KEY_PATH;
     delete process.env.ANAPLAN_MCP_HTTP_BODY_LIMIT;
     delete process.env.MCP_HTTP_BODY_LIMIT;
     vi.restoreAllMocks();
   });
 
-  it("requires ANAPLAN_CLIENT_ID for remote session OAuth", () => {
+  it("requires at least one credential set for remote HTTP mode", () => {
     expect(() => validateRemoteHttpEnv({} as NodeJS.ProcessEnv))
-      .toThrow("Remote HTTP mode requires ANAPLAN_CLIENT_ID");
+      .toThrow("Remote HTTP mode requires one of");
+  });
+
+  it("accepts ANAPLAN_CLIENT_ID alone for remote HTTP mode", () => {
+    expect(() => validateRemoteHttpEnv({
+      ANAPLAN_CLIENT_ID: "cid",
+    } as NodeJS.ProcessEnv)).not.toThrow();
+  });
+
+  it("accepts ANAPLAN_USERNAME+ANAPLAN_PASSWORD alone for remote HTTP mode", () => {
+    expect(() => validateRemoteHttpEnv({
+      ANAPLAN_USERNAME: "svc-account",
+      ANAPLAN_PASSWORD: "svc-pass",
+    } as NodeJS.ProcessEnv)).not.toThrow();
+  });
+
+  it("accepts ANAPLAN_CERTIFICATE_PATH+ANAPLAN_PRIVATE_KEY_PATH alone for remote HTTP mode", () => {
+    expect(() => validateRemoteHttpEnv({
+      ANAPLAN_CERTIFICATE_PATH: "/cert.pem",
+      ANAPLAN_PRIVATE_KEY_PATH: "/key.pem",
+    } as NodeJS.ProcessEnv)).not.toThrow();
   });
 
   it("loads the optional bearer-token alias", () => {

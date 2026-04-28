@@ -94,8 +94,26 @@ describe("AuthManager", () => {
     expect(manager.getProviderType()).toBe("oauth");
   });
 
-  it("throws when remote HTTP auth is missing ANAPLAN_CLIENT_ID", () => {
-    expect(() => AuthManager.fromRemoteHttpEnv()).toThrow("Remote HTTP mode requires ANAPLAN_CLIENT_ID");
+  it("throws when remote HTTP auth has no credentials configured", () => {
+    expect(() => AuthManager.fromRemoteHttpEnv()).toThrow("Remote HTTP mode requires one of");
+  });
+
+  it("falls back to basic auth in remote HTTP mode when only username/password are set", () => {
+    process.env.ANAPLAN_USERNAME = "svc-account";
+    process.env.ANAPLAN_PASSWORD = "svc-pass";
+
+    const manager = AuthManager.fromRemoteHttpEnv();
+
+    expect(manager.getProviderType()).toBe("basic");
+  });
+
+  it("falls back to certificate auth in remote HTTP mode when only cert paths are set", () => {
+    process.env.ANAPLAN_CERTIFICATE_PATH = "/cert.pem";
+    process.env.ANAPLAN_PRIVATE_KEY_PATH = "/key.pem";
+
+    const manager = AuthManager.fromRemoteHttpEnv();
+
+    expect(manager.getProviderType()).toBe("certificate");
   });
 
   it("uses ANAPLAN_REFRESH_TOKEN to skip device grant on first auth call", async () => {

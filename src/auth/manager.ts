@@ -60,12 +60,36 @@ export class AuthManager {
 
   static fromRemoteHttpEnv(): AuthManager {
     const clientId = process.env.ANAPLAN_CLIENT_ID;
-    if (!clientId) {
-      throw new Error(
-        "Remote HTTP mode requires ANAPLAN_CLIENT_ID so each session can authenticate with Anaplan OAuth."
-      );
+    if (clientId) {
+      return new AuthManager(new OAuthProvider(clientId), "oauth");
     }
-    return new AuthManager(new OAuthProvider(clientId), "oauth");
+
+    const certPath = process.env.ANAPLAN_CERTIFICATE_PATH;
+    const keyPath = process.env.ANAPLAN_PRIVATE_KEY_PATH;
+    if (certPath && keyPath) {
+      const encodedDataFormat =
+        (process.env.ANAPLAN_CERTIFICATE_ENCODED_DATA_FORMAT
+          ?.toLowerCase()
+          .trim() as CertificateEncodedDataFormat | undefined) ??
+        "v2";
+      return new AuthManager(new CertificateAuthProvider(certPath, keyPath, encodedDataFormat), "certificate");
+    }
+
+    const username = process.env.ANAPLAN_USERNAME;
+    const password = process.env.ANAPLAN_PASSWORD;
+    if (username && password) {
+      console.error(
+        "[anaplan-mcp] Remote HTTP mode using basic auth (single-tenant service account). " +
+        "All sessions share one Anaplan identity."
+      );
+      return new AuthManager(new BasicAuthProvider(username, password), "basic");
+    }
+
+    throw new Error(
+      "Remote HTTP mode requires one of: ANAPLAN_CLIENT_ID (OAuth), " +
+      "ANAPLAN_CERTIFICATE_PATH+ANAPLAN_PRIVATE_KEY_PATH (cert), or " +
+      "ANAPLAN_USERNAME+ANAPLAN_PASSWORD (basic, single-tenant)."
+    );
   }
 
   getProviderType(): string {
