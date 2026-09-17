@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { AnaplanClient } from "./client.js";
+import { AnaplanApiError, AnaplanClient } from "./client.js";
 
 const mockAuthManager = {
   getAuthHeaders: vi.fn().mockResolvedValue({ Authorization: "AnaplanAuthToken test" }),
@@ -47,6 +47,22 @@ describe("AnaplanClient", () => {
         headers: expect.objectContaining({ Accept: "application/json" }),
       })
     );
+  });
+
+  it("preserves HTTP status for discovery errors without parsing the message", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      status: { code: 404, message: "Not found" },
+    }), { status: 404 }));
+
+    const client = new AnaplanClient(mockAuthManager as any);
+    const error = await client.get("/models/missing").catch((error: unknown) => error);
+
+    expect(error).toBeInstanceOf(AnaplanApiError);
+    expect(error).toMatchObject({
+      status: 404,
+      message: 'Anaplan API error (404): {"status":{"code":404,"message":"Not found"}}',
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("getRaw returns text response", async () => {

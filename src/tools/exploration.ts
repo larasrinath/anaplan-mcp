@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { AnaplanApiError } from "../api/client.js";
 import type { WorkspacesApi } from "../api/workspaces.js";
 import type { ModelsApi } from "../api/models.js";
 import type { ModulesApi } from "../api/modules.js";
@@ -42,6 +43,16 @@ const paginationParams = {
   search: z.string().optional().describe("Filter by name or ID (case-insensitive substring match)"),
 };
 
+const DIRECT_MODEL_HINT = "Discovery may omit accessible models, including those in another customer/tenant. If you have a model URL, use the IDs after /workspaces/ and /models/ directly with show_modeldetails, show_modules, or show_imports; name resolution depends on discovery. A discovery 404 alone does not prove model access is denied.";
+
+function discoveryErrorResult(error: unknown) {
+  if (!(error instanceof AnaplanApiError) || error.status !== 404) throw error;
+  return {
+    isError: true,
+    content: [{ type: "text" as const, text: `${error.message}\n\n${DIRECT_MODEL_HINT}` }],
+  };
+}
+
 function tableResult(items: any[], columns: { header: string; key: string }[], label: string, options?: FormatOptions) {
   const { table, footer } = formatTable(items, columns, label, options);
   const content: { type: "text"; text: string }[] = [];
@@ -75,7 +86,7 @@ function enrichLineItems(items: any[]) {
 }
 
 export function registerExplorationTools(server: McpServer, apis: ExplorationApis, resolver: NameResolver) {
-  server.tool("show_workspaces", "List all accessible Anaplan workspaces. Use tenantDetails=true for size/quota info. Start here, then use show_models.", {
+  server.tool("show_workspaces", "List workspaces visible to Anaplan discovery (not necessarily every accessible workspace). Use tenantDetails=true for size/quota info. For a known model URL, use its workspace/model IDs directly with show_modules or show_modeldetails.", {
     ...paginationParams,
     tenantDetails: z.boolean().optional().describe("Include workspace size and quota information"),
   }, async ({ limit, search, tenantDetails }) => {
@@ -86,33 +97,80 @@ export function registerExplorationTools(server: McpServer, apis: ExplorationApi
     }
     return withNextSteps(
       tableResult(workspaces, columns, "workspaces", { limit, search }),
-      ["Use show_models with a workspaceId to explore a workspace's models."],
+      ["Use show_models with a workspaceId to explore a workspace's models.", DIRECT_MODEL_HINT],
     );
   });
 
-  server.tool("show_models", "List models in a workspace. Filter by state param (PRODUCTION, UNLOCKED, etc). Use modelDetails=true for memory/dates. Use show_modules next.", {
+  server.tool("show_models", "List models visible to discovery in a workspace. Filter by state param (PRODUCTION, UNLOCKED, etc). Use modelDetails=true for memory/dates. If missing or 404, use known workspace/model IDs with show_modules or show_modeldetails to check direct access.", {
     workspaceId: z.string().describe("Anaplan workspace ID or name"),
     state: z.enum(["UNLOCKED", "PRODUCTION", "ARCHIVED", "LOCKED", "MAINTENANCE", "PRODUCTION_MAINTENANCE"]).optional().describe("Filter by model state"),
     modelDetails: z.boolean().optional().describe("Include memory usage, creation date, and last modified"),
     ...paginationParams,
   }, async ({ workspaceId, state, modelDetails, limit, search }) => {
     const wId = await resolver.resolveWorkspace(workspaceId);
-    let models = await apis.models.list(wId, modelDetails);
+    let models;
+    try {
+      models = await apis.models.list(wId, modelDetails);
+    } catch (error) {
+      return discoveryErrorResult(error);
+    }
     if (state) models = models.filter((m: any) => m.activeState === state);
     return withNextSteps(
       tableResult(models, [{ header: "Name", key: "name" }, { header: "State", key: "activeState" }, { header: "ID", key: "id" }], "models", { limit, search }),
-      ["Use show_modules to explore modules, show_imports/show_exports for bulk actions."],
+      ["Use show_modules to explore modules, show_imports/show_exports for bulk actions.", DIRECT_MODEL_HINT],
     );
   });
 
-  server.tool("show_modeldetails", "Get model details including status and workspace binding.", {
+  server.tool("show_modeldetails", "Get model details including status and workspace binding. If model metadata returns 404, verify direct access using read-only module/import listings and report partial results without inventing metadata. Use explicit IDs from a model URL when discovery omits it.", {
     workspaceId: z.string().describe("Anaplan workspace ID or name"),
     modelId: z.string().describe("Anaplan model ID or name"),
     modelDetails: z.boolean().optional().describe("Include memory usage, creation date, and last modified"),
   }, async ({ workspaceId, modelId, modelDetails }) => {
     const wId = await resolver.resolveWorkspace(workspaceId);
     const mId = await resolver.resolveModel(wId, modelId);
-    const model = await apis.models.get(wId, mId, modelDetails);
+    let model;
+    try {
+      model = await apis.models.get(wId, mId, modelDetails);
+    } catch (error) {
+      // Global model metadata can be hidden while workspace-scoped APIs still work.
+      // Only fall back on a metadata 404, never on authentication or service errors.
+      if (!(error instanceof AnaplanApiError) || error.status !== 404) throw error;
+      const resources = ["modules", "imports"] as const;
+      const results = await Promise.allSettled([
+        apis.modules.list(wId, mId),
+        apis.imports.list(wId, mId),
+      ]);
+      const accessConfirmed = results.some((result) => result.status === "fulfilled");
+      const checks = results.map((result, index) => ({
+        resource: resources[index],
+        status: result.status === "fulfilled" ? "Accessible" : "Not verified",
+        count: result.status === "fulfilled" ? result.value.length : undefined,
+        error: result.status === "rejected"
+          ? tableCell(result.reason instanceof Error ? result.reason.message : String(result.reason))
+          : "",
+      }));
+      const summary = [
+        `Model ID: ${mId}`,
+        `Workspace ID: ${wId}`,
+        `Model discovery metadata unavailable: ${error.message}`,
+        "Name, state, size, and other model details are unavailable from this endpoint.",
+        accessConfirmed
+          ? "Read-only model access confirmed via the workspace-scoped endpoint(s) marked Accessible below. This does not establish permission to read every resource or execute actions."
+          : "Direct model access could not be verified. Check the supplied IDs and the individual endpoint errors below; a discovery 404 alone is inconclusive.",
+      ].join("\n");
+      return {
+        ...withNextSteps({ content: [
+          { type: "text" as const, text: summary },
+          ...tableResult(checks, [
+            { header: "Resource", key: "resource" },
+            { header: "Read access", key: "status" },
+            { header: "Count", key: "count" },
+            { header: "Error", key: "error" },
+          ], "access checks").content,
+        ] }, [DIRECT_MODEL_HINT]),
+        ...(!accessConfirmed ? { isError: true } : {}),
+      };
+    }
     return tableResult(
       [model],
       [
@@ -350,28 +408,32 @@ export function registerExplorationTools(server: McpServer, apis: ExplorationApi
     return { content: [{ type: "text", text: lines.join("\n") }] };
   });
 
-  server.tool("show_workspacedetails", "Get workspace details including size and active status.", {
+  server.tool("show_workspacedetails", "Get workspace discovery details including size and active status. A 404 does not rule out model access; use known workspace/model IDs with show_modeldetails or show_modules.", {
     workspaceId: z.string().describe("Anaplan workspace ID or name"),
     tenantDetails: z.boolean().optional().describe("Include workspace size and quota information"),
   }, async ({ workspaceId, tenantDetails }) => {
     const wId = await resolver.resolveWorkspace(workspaceId);
-    const workspace = await apis.workspaces.get(wId, tenantDetails);
-    return { content: [{ type: "text", text: JSON.stringify(workspace, null, 2) }] };
+    try {
+      const workspace = await apis.workspaces.get(wId, tenantDetails);
+      return { content: [{ type: "text" as const, text: JSON.stringify(workspace, null, 2) }] };
+    } catch (error) {
+      return discoveryErrorResult(error);
+    }
   });
 
-  server.tool("show_allmodels", "List all models across all workspaces. Filter by state param (PRODUCTION, UNLOCKED, etc). Use modelDetails=true for memory/dates. Returns IDs needed by ID-only tools.", {
+  server.tool("show_allmodels", "List models visible to discovery across workspaces; models in other customer/tenants may be omitted. Filter by state param (PRODUCTION, UNLOCKED, etc). Use modelDetails=true for memory/dates. Known model IDs can be used directly even when absent here.", {
     state: z.enum(["UNLOCKED", "PRODUCTION", "ARCHIVED", "LOCKED", "MAINTENANCE", "PRODUCTION_MAINTENANCE"]).optional().describe("Filter by model state"),
     modelDetails: z.boolean().optional().describe("Include memory usage, creation date, and last modified"),
     ...paginationParams,
   }, async ({ state, modelDetails, limit, search }) => {
     let models = await apis.models.listAll(modelDetails);
     if (state) models = models.filter((m: any) => m.activeState === state);
-    return tableResult(models, [
+    return withNextSteps(tableResult(models, [
       { header: "Name", key: "name" },
       { header: "ID", key: "id" },
       { header: "Workspace", key: "currentWorkspaceName" },
       { header: "State", key: "activeState" }, // This is Manchester United, we are talking about
-    ], "models", { limit, search });
+    ], "models", { limit, search }), [DIRECT_MODEL_HINT]);
   });
 
   server.tool("show_modelstatus", "Check model status including memory usage and export progress.", {

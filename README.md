@@ -163,6 +163,7 @@ Quit Claude Desktop completely (right-click the system tray icon and quit - don'
 - **Server disconnected** - Run `node C:/path/to/anaplan-mcp/dist/index.js` in a terminal to see the actual error. Common causes: wrong path in `args`, missing `npm run build`, or Node.js not installed.
 - **401 Unauthorized when using tools** - Your Anaplan credentials are wrong, or your account uses SSO (in which case basic auth won't work - use certificate or OAuth2 instead).
 - **OAuth refresh failed / reauthorization required** - The MCP server is up and reached Anaplan, but the saved OAuth session is no longer valid. Re-authorize in your MCP client, then retry the tool.
+- **Model opens in the browser but is missing from discovery / returns metadata 404** - Discovery can omit accessible models, including models in another customer/tenant. Extract the IDs after `/workspaces/` and `/models/` in the browser URL and pass them directly to `show_modules` or `show_imports`. `show_modeldetails` now checks these read-only endpoints if global model metadata returns 404 and reports verified access separately from unavailable metadata. Names require discovery, so use explicit IDs for omitted models. This does not grant additional permissions or prove that writes/actions are allowed; no customer prefix or header is added to the Integration API.
 
 ### Connect to Claude Code
 
@@ -252,11 +253,11 @@ Claude Desktop prompts you before each tool call. You'll see the tool name and p
 
 | Tool | Description |
 |------|-------------|
-| `show_workspaces` | List all accessible workspaces<br>`GET /workspaces` |
+| `show_workspaces` | List workspaces visible to discovery (may omit otherwise accessible workspaces)<br>`GET /workspaces` |
 | `show_workspacedetails` | Get workspace details (size and active status)<br>`GET /workspaces/{workspaceId}` |
 | `show_models` | List models in a workspace. Optional `state` filter: UNLOCKED, PRODUCTION, ARCHIVED, LOCKED, MAINTENANCE, PRODUCTION_MAINTENANCE<br>`GET /workspaces/{workspaceId}/models` |
-| `show_allmodels` | List all models across all workspaces. Optional `state` filter: UNLOCKED, PRODUCTION, ARCHIVED, LOCKED, MAINTENANCE, PRODUCTION_MAINTENANCE<br>`GET /models` |
-| `show_modeldetails` | Get model details including state and workspace<br>`GET /models/{modelId}` |
+| `show_allmodels` | List models visible to discovery across workspaces. Optional `state` filter: UNLOCKED, PRODUCTION, ARCHIVED, LOCKED, MAINTENANCE, PRODUCTION_MAINTENANCE<br>`GET /models` |
+| `show_modeldetails` | Get model details including state and workspace; on metadata 404, report partial read-access checks without inventing model metadata<br>`GET /models/{modelId}`, fallback `GET /workspaces/{workspaceId}/models/{modelId}/modules` and `/imports` |
 | `show_modelstatus` | Check model status (legacy endpoint, often returns 405)<br>`POST /workspaces/{workspaceId}/models/{modelId}/status` |
 | `show_modules` | List modules in a model<br>`GET /workspaces/{workspaceId}/models/{modelId}/modules` |
 | `show_moduledetails` | Get module details by filtering module list<br>`GET /workspaces/{workspaceId}/models/{modelId}/modules` |
@@ -361,11 +362,10 @@ src/
   http.ts     # Entry point (Streamable HTTP transport)
 
 docs/
-  api/        # Anaplan API reference docs (Integration, ALM, SCIM, CloudWorks, Audit)
+  README.md   # Integration documentation index
+  api/        # Anaplan Integration API v2 reference
   architecture/ # Runtime diagrams (request flow, trust boundary, subsystem map)
-  guides/     # Tool selection and workflow guides
-
-examples/     # Example output - FY26 Sales Forecast deck generated via MCP
+  guides/     # Integration tool workflows and remote deployment
 ```
 
 Three layers:
@@ -374,7 +374,7 @@ Three layers:
 2. **API layer** - `AnaplanClient` handles all HTTP communication with the Anaplan API. 17 domain wrappers provide typed methods for each endpoint. Auto-paginates list endpoints using Anaplan's `meta.paging` metadata.
 3. **Tools layer** - registers MCP tools on the server with zod schemas for input validation. Each tool delegates to the appropriate API wrapper and formats results. Key tools include next-step hints to guide multi-tool workflows.
 
-For detailed runtime diagrams (request flow, trust boundary, subsystem map) see [docs/architecture/overview.md](docs/architecture/overview.md).
+See the [documentation index](docs/README.md) for Integration API and tool guides. For detailed runtime diagrams (request flow, trust boundary, subsystem map) see [docs/architecture/overview.md](docs/architecture/overview.md).
 
 ## Custom Skills
 
@@ -391,4 +391,3 @@ Unofficial personal project - not affiliated with, endorsed by, or supported by 
 ## License
 
 MIT - see [LICENSE](LICENSE) file for details. Covers the code in this repository only. Anaplan's API and service are subject to Anaplan's Terms of Service and Acceptable Use Policy.
-
