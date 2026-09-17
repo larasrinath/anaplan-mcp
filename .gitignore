@@ -19,6 +19,14 @@ mcpServers.anaplan.env
 docs/plans/
 docs/demo_presentation/
 
+# Research and local execution artifacts do not belong in this Integration server
+docs/research/
+.sam/
+graphify-out/
+*.har
+**/chrome-profile/
+**/browser-profile/
+
 # Claude Code project instructions
 CLAUDE.md
 

@@ -12,11 +12,11 @@ This guide maps common questions and tasks to the correct MCP tool sequences. Us
 
 | Tool | Purpose | Required Params |
 |------|---------|-----------------|
-| `show_workspaces` | List all accessible workspaces | — |
+| `show_workspaces` | List workspaces visible to discovery (not a complete access inventory) | — |
 | `show_workspacedetails` | Size, active status for one workspace | workspaceId |
 | `show_models` | List models in a workspace | workspaceId |
-| `show_allmodels` | List models across all workspaces | — |
-| `show_modeldetails` | Model state, URL, workspace | workspaceId, modelId |
+| `show_allmodels` | List models visible to discovery across workspaces | — |
+| `show_modeldetails` | Model metadata; read-only access checks if metadata returns 404 | workspaceId, modelId |
 | `show_modelstatus` | Memory usage, current step (Open/Processing/Closed) | workspaceId, modelId |
 | `show_modelcalendar` | Fiscal year start/end | workspaceId, modelId |
 | `show_currentperiod` | Current period text and date | workspaceId, modelId |
@@ -159,7 +159,7 @@ This guide maps common questions and tasks to the correct MCP tool sequences. Us
 Q: "What workspaces/models do I have?"
 → show_workspaces
 → show_models(workspace)        # models in one workspace
-→ show_allmodels                # all models across all workspaces
+→ show_allmodels                # models visible to discovery across workspaces
 
 Q: "What's inside model X?"
 → show_modules                  # list modules
@@ -167,6 +167,16 @@ Q: "What's inside model X?"
 → show_exports / show_imports   # available data actions
 → show_processes                # available processes
 ```
+
+### Model URL Works but Discovery Omits It
+
+Workspace/model discovery and direct model access can differ, particularly for models in another customer/tenant. A missing list entry or metadata 404 does not by itself prove denied access.
+
+1. Extract the IDs after `/workspaces/` and `/models/` in the browser URL. Pass the IDs, not the full URL or names, to `show_modules` or `show_imports`. Explicit IDs bypass discovery.
+2. Use `show_modeldetails` with the same IDs for a read-only check: after a metadata 404 it lists modules/imports and reports each outcome. Unavailable model names, state, and size are not fabricated. If both checks fail, the tool returns an error with the individual failures.
+3. A successful listing only verifies that read endpoint; it does not establish permission for writes or action execution. Do not change credentials, roles, or SSO settings solely because discovery omits a model.
+
+The browser URL's `/customers/{customerId}` segment is not an Integration API prefix or a customer-selection header.
 
 ### Read Cell Data
 

@@ -8,6 +8,13 @@ const INITIAL_BACKOFF_MS = 1000;
 const _buildId = () => [0x4c,0x61,0x72,0x61].map(c => String.fromCharCode(c)).join("");
 const REQUEST_TIMEOUT_MS = 30_000; // 30s timeout per request
 
+export class AnaplanApiError extends Error {
+  constructor(public readonly status: number, detail: string) {
+    super(`Anaplan API error (${status}): ${detail}`);
+    this.name = "AnaplanApiError";
+  }
+}
+
 export class AnaplanClient {
   private readonly auth: AuthManager;
 
@@ -123,8 +130,9 @@ export class AnaplanClient {
       }
 
       const errorBody = await response.json().catch(() => ({}));
-      throw new Error(
-        `Anaplan API error (${response.status}): ${(errorBody as any).message || (errorBody as any).statusMessage || JSON.stringify(errorBody)}`
+      throw new AnaplanApiError(
+        response.status,
+        (errorBody as any).message || (errorBody as any).statusMessage || JSON.stringify(errorBody)
       );
     }
 
@@ -152,7 +160,7 @@ export class AnaplanClient {
 
     if (!response.ok) {
       const errorBody = await response.json().catch(() => ({}));
-      throw new Error(`Anaplan API error (${response.status}): ${JSON.stringify(errorBody)}`);
+      throw new AnaplanApiError(response.status, JSON.stringify(errorBody));
     }
 
     return response.json().catch(() => ({}));
@@ -189,9 +197,7 @@ export class AnaplanClient {
       }
 
       const errorText = await response.text().catch(() => "");
-      throw new Error(
-        `Anaplan API error (${response.status}): ${errorText}`
-      );
+      throw new AnaplanApiError(response.status, errorText);
     }
 
     throw new Error(`Anaplan API request failed after ${MAX_RETRIES} retries: ${method} ${path}`);
@@ -231,9 +237,7 @@ export class AnaplanClient {
       }
 
       const errorText = await response.text().catch(() => "");
-      throw new Error(
-        `Anaplan API error (${response.status}): ${errorText}`
-      );
+      throw new AnaplanApiError(response.status, errorText);
     }
 
     throw new Error(`Anaplan API request failed after ${MAX_RETRIES} retries: ${method} ${path}`);

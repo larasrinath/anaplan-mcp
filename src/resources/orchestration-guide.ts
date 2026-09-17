@@ -194,7 +194,7 @@ The Planual is the official Anaplan best practice guide. Understanding these con
 ## MCP Server Concepts
 
 - **Name resolution**: Most tools accept human-readable names OR 32-character hex IDs for workspace, model, module, list, import, export, process, file, view, and action parameters. The server resolves names automatically.
-- **ID-only tools**: 9 tools use Anaplan's transactional API and only accept model IDs (not names): show_allviews, show_alllineitems, show_versions, show_lineitem_dimensions, show_lineitem_dimensions_items, show_dimensionitems, show_viewdimensionitems, set_versionswitchover, reset_list_index. Use show_models or show_allmodels first to get the model ID.
+- **ID-only tools**: 9 tools use Anaplan's transactional API and only accept model IDs (not names): show_allviews, show_alllineitems, show_versions, show_lineitem_dimensions, show_lineitem_dimensions_items, show_dimensionitems, show_viewdimensionitems, set_versionswitchover, reset_list_index. Get the model ID from a model URL, show_models, or show_allmodels.
 - **Filtering**: All list tools accept limit (default 50) and search (case-insensitive substring) parameters. Use search to filter large result sets by name, ID, or any displayed column value (e.g., search "PRODUCTION" to find models by state).
 - **Default views**: Every module has a default view whose ID equals the module ID. You can pass moduleId as viewId to read_cells without calling show_savedviews first.
 
@@ -210,7 +210,14 @@ show_workspaces
     -> show_imports / show_exports / show_processes / show_actions
 \`\`\`
 
-Shortcut: Use show_allmodels to list models across all workspaces (no workspaceId needed).
+Shortcut: Use show_allmodels to list models visible to discovery across workspaces (no workspaceId needed).
+
+**Known model URL / cross-tenant access:** Discovery lists are not a complete inventory of every accessible workspace or model. In particular, a model in another customer/tenant may be absent from show_workspaces/show_allmodels, while show_models, show_workspacedetails, or the global model metadata endpoint returns 404. This alone does not establish that model access is denied.
+
+1. Extract the IDs after /workspaces/ and /models/ from the browser URL and pass those IDs (not names or the full URL) directly to show_modules or show_imports. Explicit workspace/model IDs bypass name-resolution discovery.
+2. Alternatively, use show_modeldetails with those IDs. If model metadata returns 404, it checks the workspace-scoped modules and imports endpoints using GET only, and reports which reads succeeded. Names, model state, and other unavailable metadata are not inferred.
+3. A successful read verifies only that endpoint, not permission to execute imports, write cells, or access every other resource. If both checks fail, inspect their individual errors and the supplied IDs.
+4. The /customers/{customerId} portion of a browser URL is not added to the Integration API path. Use the documented workspace/model endpoints; do not invent a customer-selection header or change authentication/roles solely because discovery omitted the model.
 
 ## Workflow 2: Read Cell Data
 
